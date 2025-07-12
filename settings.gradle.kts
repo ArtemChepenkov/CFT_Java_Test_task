@@ -1,0 +1,1 @@
+rootProject.name = "CFT_Test_Task"
