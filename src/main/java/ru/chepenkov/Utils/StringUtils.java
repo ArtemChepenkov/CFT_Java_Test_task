@@ -1,38 +1,40 @@
 package ru.chepenkov.Utils;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+
 public class StringUtils {
 
 
-    private StringUtils() {}
+    private StringUtils() {
+    }
 
     public static boolean isAllIntegers(String line) {
-        char[] lineChars = line.toCharArray();
-
-        for (char c: lineChars) {
-            if (!Character.isDigit(c) && c != '-') {
-                return false;
-            }
+        if (line == null || line.isEmpty()) {
+            return false;
         }
-        return true;
+        try {
+            BigDecimal temp = new BigDecimal(line);
+            temp.toBigIntegerExact();
+            return true;
+        } catch (ArithmeticException | NumberFormatException e) {
+            return false;
+        }
     }
 
     public static boolean isAllFloats(String line) {
-        char[] lineChars = line.toCharArray();
-        int pointAmout = 0;
-
-
-        for (char c: lineChars) {
-            if (c == '.') {
-                pointAmout++;
-
-                if (pointAmout > 1) {
-                    return false;
-                }
-            } else if (!Character.isDigit(c) && c != '-') {
-                return false;
-            }
+        if (line == null || line.isEmpty()) {
+            return false;
         }
-        return true;
-    }
+        try {
+            BigDecimal temp = new BigDecimal(line);
+            temp.toBigIntegerExact();
+            return false;
+        } catch (ArithmeticException e) {
+            return !isAllIntegers(line);
+        } catch (NumberFormatException e) {
+            return false;
+        }
 
+    }
 }

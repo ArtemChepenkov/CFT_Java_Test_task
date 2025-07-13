@@ -4,7 +4,6 @@ import ru.chepenkov.DataTypes.TypeData;
 import ru.chepenkov.Utils.StringUtils;
 
 import java.io.BufferedReader;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -14,62 +13,84 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 
 public class FileParser implements Callable<Map<String, TypeData<?>>> {
-    private final String filename;
-    private final Map<String, TypeData<?>> allData;
 
+    private final String filename;
+    private final Map<String, TypeData<?>> allData = new HashMap<>();
+
+    private static final String TYPE_INTEGER = "integer";
+    private static final String TYPE_FLOAT = "float";
+    private static final String TYPE_STRING = "string";
 
     public FileParser(String filename) {
         this.filename = filename;
-        this.allData = new HashMap<>();
-        allData.put("integer", new TypeData<BigInteger>());
-
-        allData.put("float", new TypeData<BigDecimal>());
-
-        allData.put("string", new TypeData<String>());
+        allData.put(TYPE_INTEGER, new TypeData<BigInteger>());
+        allData.put(TYPE_FLOAT, new TypeData<BigDecimal>());
+        allData.put(TYPE_STRING, new TypeData<String>());
     }
 
     @Override
-    public Map<String, TypeData<?>> call() throws FileNotFoundException, Exception {
-        try (BufferedReader br = new BufferedReader(new FileReader(filename))) {
+    public Map<String, TypeData<?>> call() {
+        try (BufferedReader reader = new BufferedReader(new FileReader(filename))) {
             String line;
 
-
-            while ((line = br.readLine()) != null) {
-                System.out.println(line);
+            while ((line = reader.readLine()) != null) {
                 Main.elementsCounter.incrementAndGet();
+                line = line.trim();
+                if (line.isEmpty()) continue;
+
                 if (StringUtils.isAllIntegers(line)) {
-                    BigInteger curInteger = new BigInteger(line);
-                    BigDecimal curFloat = new BigDecimal(line);
-                    Main.numberSum.updateAndGet(current -> current.add(curFloat));
-                    Main.integersCounter.incrementAndGet();
-                    Main.integerMax.update(curInteger);
-                    Main.integerMin.update(curInteger);
-                    @SuppressWarnings("unchecked")
-                    TypeData<BigInteger> intData = (TypeData<BigInteger>) allData.get("integer");
-                    intData.addElement(curInteger);
+                    processInteger(line);
                 } else if (StringUtils.isAllFloats(line)) {
-                    BigDecimal curFloat = new BigDecimal(line);
-                    Main.numberSum.updateAndGet(current -> current.add(curFloat));
-                    Main.floatsCounter.incrementAndGet();
-                    Main.floatMax.update(curFloat);
-                    Main.floatMin.update(curFloat);
-                    @SuppressWarnings("unchecked")
-                    TypeData<BigDecimal> floatData = (TypeData<BigDecimal>) allData.get("float");
-                    floatData.addElement(curFloat);
-
+                    processFloat(line);
                 } else {
-                    Main.stringsCounter.incrementAndGet();
-                    Main.stringMax.update(line.length());
-                    Main.stringMin.update(line.length());
-                    @SuppressWarnings("unchecked")
-                    TypeData<String> stringData = (TypeData<String>) allData.get("string");
-                    stringData.addElement(line);
-
+                    processString(line);
                 }
             }
+
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Ошибка при чтении файла: " + filename, e);
         }
+
         return allData;
+    }
+
+    private void processInteger(String line) {
+        BigDecimal temp = new BigDecimal(line);
+        BigInteger value = temp.toBigIntegerExact();
+        BigDecimal decimalValue = new BigDecimal(value);
+
+        Main.integersCounter.incrementAndGet();
+        Main.numberSum.updateAndGet(current -> current.add(decimalValue));
+        Main.integerMax.update(value);
+        Main.integerMin.update(value);
+
+        @SuppressWarnings("unchecked")
+        TypeData<BigInteger> data = (TypeData<BigInteger>) allData.get(TYPE_INTEGER);
+        data.addElement(value);
+    }
+
+    private void processFloat(String line) {
+        BigDecimal value = new BigDecimal(line);
+
+        Main.floatsCounter.incrementAndGet();
+        Main.numberSum.updateAndGet(current -> current.add(value));
+        Main.floatMax.update(value);
+        Main.floatMin.update(value);
+
+        @SuppressWarnings("unchecked")
+        TypeData<BigDecimal> data = (TypeData<BigDecimal>) allData.get(TYPE_FLOAT);
+        data.addElement(value);
+    }
+
+    private void processString(String line) {
+        int length = line.length();
+
+        Main.stringsCounter.incrementAndGet();
+        Main.stringMax.update(length);
+        Main.stringMin.update(length);
+
+        @SuppressWarnings("unchecked")
+        TypeData<String> data = (TypeData<String>) allData.get(TYPE_STRING);
+        data.addElement(line);
     }
 }

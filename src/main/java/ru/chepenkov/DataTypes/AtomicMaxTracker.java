@@ -1,4 +1,4 @@
-package ru.chepenkov;
+package ru.chepenkov.DataTypes;
 
 import java.util.concurrent.atomic.AtomicReference;
 

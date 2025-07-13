@@ -1,8 +1,8 @@
 package ru.chepenkov;
 
+import ru.chepenkov.DataTypes.AtomicMaxTracker;
+import ru.chepenkov.DataTypes.AtomicMinTracker;
 import ru.chepenkov.DataTypes.TypeData;
-import ru.chepenkov.Utils.ArrayUtils;
-import ru.chepenkov.Utils.ParseUtils;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -10,21 +10,16 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Main {
-    static AtomicLong elementsCounter = new AtomicLong(0L);
-    static AtomicLong integersCounter = new AtomicLong(0L);
-    static AtomicLong floatsCounter = new AtomicLong(0L);
-    static AtomicLong stringsCounter = new AtomicLong(0L);
+    static AtomicLong elementsCounter = new AtomicLong(0);
+    static AtomicLong integersCounter = new AtomicLong(0);
+    static AtomicLong floatsCounter = new AtomicLong(0);
+    static AtomicLong stringsCounter = new AtomicLong(0);
     static AtomicReference<BigDecimal> numberSum = new AtomicReference<>(BigDecimal.ZERO);
     static AtomicMinTracker<BigInteger> integerMin = new AtomicMinTracker<>(null);
     static AtomicMaxTracker<BigInteger> integerMax = new AtomicMaxTracker<>(null);
@@ -34,192 +29,173 @@ public class Main {
     static AtomicMaxTracker<Integer> stringMax = new AtomicMaxTracker<>(null);
 
     public static void main(String[] args) throws IOException {
-        String[] flags = {"-o", "-p", "-a", "-s", "-f"};
-        int oIndex = ArrayUtils.findIndex(args, "-o");
-        int pIndex = ArrayUtils.findIndex(args, "-p");
-        int aIndex = ArrayUtils.findIndex(args, "-a");
-        int sIndex = ArrayUtils.findIndex(args, "-s");
-        int fIndex = ArrayUtils.findIndex(args, "-f");
+        Map<String, String> options = parseArgs(args);
+        List<String> inputFiles = getInputFiles(args, options);
 
-        String resultPath = "./";
-        String prefix = "";
+        List<Map<String, TypeData<?>>> results = processFiles(inputFiles);
+        Map<String, List<?>> categorizedData = mergeResults(results);
 
-        ArrayList<Integer> takenIndecies = new ArrayList<>();
-        ArrayList<String> inputFiles = new ArrayList<>();
+        writeResults(options, categorizedData);
+        printStats(options);
+    }
 
-
-        // -o case
-        if (oIndex != -1) {
-            if (ParseUtils.checkFlag(args, flags, "-o", oIndex)) {
-                resultPath = args[oIndex + 1];
-
-            } else {
-                System.err.println("\n-o requires file path after itself: -o <path>" +
-                        "\n" + "Using ./ path\n");
+    private static Map<String, String> parseArgs(String[] args) {
+        Map<String, String> opts = new HashMap<>();
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("-o") && i + 1 < args.length) {
+                opts.put("path", args[++i]);
+            } else if (args[i].equals("-p") && i + 1 < args.length) {
+                opts.put("prefix", args[++i]);
+            } else if (args[i].startsWith("-")) {
+                opts.put(args[i], "true");
             }
-            takenIndecies.add(oIndex);
         }
-        // -p case
-        if (pIndex != -1) {
-            if (ParseUtils.checkFlag(args, flags, "-p", pIndex)) {
-                prefix = args[pIndex + 1];
-            } else {
-                System.err.println("\n-p requires file prefix after itself: -p <prefix>" +
-                        "\n" + "Using empty prefix\n");
+        opts.putIfAbsent("path", "./");
+        opts.putIfAbsent("prefix", "");
+        return opts;
+    }
+
+    private static List<String> getInputFiles(String[] args, Map<String, String> opts) {
+        Set<Integer> takenIndexes = new HashSet<>();
+        List<String> inputFiles = new ArrayList<>();
+
+        for (int i = 0; i < args.length; i++) {
+            if ((args[i].equals("-o") || args[i].equals("-p")) && i + 1 < args.length) {
+                takenIndexes.add(i);
+                takenIndexes.add(i + 1);
+                i++;
+            } else if (args[i].startsWith("-")) {
+                takenIndexes.add(i);
             }
-            takenIndecies.add(pIndex);
-        }
-        // -a case
-        if (aIndex != -1) {
-            takenIndecies.add(aIndex);
-        }
-        // -s case
-        if (sIndex != -1) {
-            takenIndecies.add(sIndex);
-        }
-        // -f case
-        if (fIndex != -1) {
-            takenIndecies.add(fIndex);
         }
 
         for (int i = 0; i < args.length; i++) {
-            if (ArrayUtils.findIndex(takenIndecies, i) == -1) {
+            if (!takenIndexes.contains(i)) {
                 inputFiles.add(args[i]);
-                System.out.println(args[i]);
             }
         }
+        return inputFiles;
+    }
 
-        List<Future<Map<String, TypeData<?>>>> futures = new ArrayList<>();
+    private static List<Map<String, TypeData<?>>> processFiles(List<String> inputFiles) {
         List<Map<String, TypeData<?>>> results = new ArrayList<>();
-        try (ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor()) {
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<Map<String, TypeData<?>>>> futures = new ArrayList<>();
             for (String file : inputFiles) {
-                FileParser parser = new FileParser(file);
-                futures.add(executorService.submit(parser));
+                futures.add(executor.submit(new FileParser(file)));
             }
-
-
             for (Future<Map<String, TypeData<?>>> future : futures) {
                 try {
                     results.add(future.get());
                 } catch (ExecutionException | InterruptedException e) {
-                    throw new RuntimeException(e); //добавить поподробней
+                    throw new RuntimeException("Ошибка обработки файла", e);
                 }
             }
         }
-
-
-        boolean hasFloat = false;
-        boolean hasInteger = false;
-        boolean hasString = false;
-
-        String commonName = resultPath + prefix;
-        String floatName = "";
-        String integerName = "";
-        String stringName = "";
-
-        List<BigInteger> integers = new ArrayList<>();
-        List<BigDecimal> floats = new ArrayList<>();
-        List<String> strings = new ArrayList<>();
+        return results;
+    }
+    @SuppressWarnings("unchecked")
+    private static Map<String, List<?>> mergeResults(List<Map<String, TypeData<?>>> results) {
+        Map<String, List<?>> dataMap = new HashMap<>();
+        dataMap.put("integer", new ArrayList<>());
+        dataMap.put("float", new ArrayList<>());
+        dataMap.put("string", new ArrayList<>());
 
         for (Map<String, TypeData<?>> result : results) {
-            if (result.get("string").getAmount() != 0) {
-                hasString = true;
-            }
-            if (result.get("integer").getAmount() != 0) {
-                hasInteger = true;
-            }
-            if (result.get("float").getAmount() != 0) {
-                hasFloat = true;
-            }
-        }
 
-        for (Map<String, TypeData<?>> result : results) {
-            @SuppressWarnings("unchecked")
-            TypeData<BigInteger> intValues = (TypeData<BigInteger>) result.get("integer");
-            @SuppressWarnings("unchecked")
-            TypeData<BigDecimal> floatValues = (TypeData<BigDecimal>) result.get("float");
-            @SuppressWarnings("unchecked")
-            TypeData<String> stringValues = (TypeData<String>) result.get("string");
-            if (!intValues.isEmpty()) {
-                integers.addAll(intValues.getElements());
-            }
-            if (!floatValues.isEmpty()) {
-                floats.addAll(floatValues.getElements());
-            }
-            if (!stringValues.isEmpty()) {
-                strings.addAll(stringValues.getElements());
-            }
-        }
+            TypeData<BigInteger> intData = (TypeData<BigInteger>) result.get("integer");
+            TypeData<BigDecimal> floatData = (TypeData<BigDecimal>) result.get("float");
+            TypeData<String> stringData = (TypeData<String>) result.get("string");
 
-        BigDecimal maxIntToDecimal = null;
-        BigDecimal minIntToDecimal = null;
+            ((List<BigInteger>) dataMap.get("integer")).addAll(intData.getElements());
+            ((List<BigDecimal>) dataMap.get("float")).addAll(floatData.getElements());
+            ((List<String>) dataMap.get("string")).addAll(stringData.getElements());
+        }
+        return dataMap;
+    }
 
-        if (integerMax != null && integerMin != null) {
-            maxIntToDecimal = new BigDecimal(integerMax.getMax());
-            minIntToDecimal = new BigDecimal(integerMin.getMin());
-        }
+    private static void writeResults(Map<String, String> opts, Map<String, List<?>> dataMap) {
+        String basePath = opts.get("path") + opts.get("prefix");
+        boolean append = opts.containsKey("-a");
 
-        if (hasFloat) {
-            writeFile(commonName, "floats.txt", floats, aIndex != -1);
+        if (!((List<?>) dataMap.get("integer")).isEmpty()) {
+            writeFile(basePath, "integers.txt", dataMap.get("integer"), append);
         }
-        if (hasInteger) {
-            writeFile(commonName, "integers.txt", integers, aIndex != -1);
+        if (!((List<?>) dataMap.get("float")).isEmpty()) {
+            writeFile(basePath, "floats.txt", dataMap.get("float"), append);
         }
-        if (hasString) {
-            writeFile(commonName, "strings.txt", strings, aIndex != -1);
+        if (!((List<?>) dataMap.get("string")).isEmpty()) {
+            writeFile(basePath, "strings.txt", dataMap.get("string"), append);
         }
+    }
 
-        if (fIndex != -1) {
-            System.out.println("----------------Статистика----------------");
+    private static void printStats(Map<String, String> opts) {
+        if (opts.containsKey("-f")) {
+            System.out.println("----- Полная статистика -----");
             System.out.println("Всего элементов: " + elementsCounter.get());
             System.out.println("Строк: " + stringsCounter.get());
             System.out.println("Целых чисел: " + integersCounter.get());
             System.out.println("Дробных чисел: " + floatsCounter.get());
-            if (floatMax.getMax() != null && maxIntToDecimal != null) {
-                System.out.println("Максимальное число: " + (floatMax.getMax().compareTo(maxIntToDecimal) == 1 ? floatMax.getMax() : maxIntToDecimal));
-            } else if (floatMax.getMax() == null) {
-                System.out.println("Максимальное число: " + maxIntToDecimal);
-            } else {
-                System.out.println("Максимальное число: " + floatMax.getMax());
-            }
-            if (floatMin.getMin() != null && maxIntToDecimal != null) {
-                System.out.println("Минимальное число: " + (floatMin.getMin().compareTo(minIntToDecimal) == -1 ? floatMin.getMin() : minIntToDecimal));
-            } else if (floatMin.getMin() == null) {
-                System.out.println("Минимальное число: " + minIntToDecimal);
-            } else {
-                System.out.println("Минимальное число: " + floatMin.getMin());
-            }
-            System.out.println("Сумма: " + numberSum);
-            System.out.println("Среднее: " + numberSum.get().divide(
-                    new BigDecimal(integersCounter.get() + floatsCounter.get()))
-            );
-            if (stringMax.getMax() == null) {
-                stringMax = new AtomicMaxTracker<>(0);
-            }
-            if (stringMin.getMin() == null) {
-                stringMin = new AtomicMinTracker<>(0);
-            }
-            System.out.println("Длина самой длинной строки: " + stringMax.getMax());
-            System.out.println("Длина самой короткой строки: " + stringMin.getMin());
-        } else if (sIndex != -1) {
-            System.out.println("Всего элементов: " + elementsCounter);
-        }
 
+            BigDecimal max = maxBigDecimal();
+            BigDecimal min = minBigDecimal();
+
+            System.out.println("Максимальное число: " + max);
+            System.out.println("Минимальное число: " + min);
+            System.out.println("Сумма: " + numberSum.get());
+
+            long count = integersCounter.get() + floatsCounter.get();
+            System.out.println("Среднее: " + (count > 0 ? numberSum.get().divide(new BigDecimal(count), RoundingMode.HALF_UP) : "0"));
+
+            System.out.println("Длина самой длинной строки: " + safeGet(stringMax.getMax()));
+            System.out.println("Длина самой короткой строки: " + safeGet(stringMin.getMin()));
+
+        } else if (opts.containsKey("-s")) {
+            System.out.println("Всего элементов: " + elementsCounter.get());
+        }
     }
 
-    public static void writeFile(String wholePrefix, String baseFileName, List<?> sourceArray, boolean needAppend) {
-        try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(wholePrefix + baseFileName, needAppend))) {
-            if (needAppend) {
-                bufferedWriter.newLine();
-            }
-            for (int i = 0; i < sourceArray.size(); i++) {
-                bufferedWriter.write(String.valueOf(sourceArray.get(i)));
-                if (i != sourceArray.size() - 1) {
-                    bufferedWriter.newLine();
-                }
+    private static BigDecimal maxBigDecimal() {
+        if (floatMax.getMax() != null && integerMax.getMax() != null) {
+            BigDecimal floatMaxVal = floatMax.getMax();
+            BigDecimal intMaxVal = new BigDecimal(integerMax.getMax());
+            return floatMaxVal.compareTo(intMaxVal) > 0 ? floatMaxVal : intMaxVal;
+        } else if (floatMax.getMax() != null) {
+            return floatMax.getMax();
+        } else if (integerMax.getMax() != null) {
+            return new BigDecimal(integerMax.getMax());
+        } else {
+            return null;
+        }
+    }
+
+    private static BigDecimal minBigDecimal() {
+        if (floatMin.getMin() != null && integerMin.getMin() != null) {
+            BigDecimal floatMinVal = floatMin.getMin();
+            BigDecimal intMinVal = new BigDecimal(integerMin.getMin());
+            return floatMinVal.compareTo(intMinVal) < 0 ? floatMinVal : intMinVal;
+        } else if (floatMin.getMin() != null) {
+            return floatMin.getMin();
+        } else if (integerMin.getMin() != null) {
+            return new BigDecimal(integerMin.getMin());
+        } else {
+            return null;
+        }
+    }
+
+    private static Object safeGet(Object value) {
+        return value != null ? value : "нет данных";
+    }
+
+    public static void writeFile(String path, String filename, List<?> data, boolean append) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(path + filename, append))) {
+            if (append) writer.newLine();
+            for (int i = 0; i < data.size(); i++) {
+                writer.write(data.get(i).toString());
+                if (i != data.size() - 1) writer.newLine();
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Ошибка при записи файла: " + filename, e);
         }
     }
 }
