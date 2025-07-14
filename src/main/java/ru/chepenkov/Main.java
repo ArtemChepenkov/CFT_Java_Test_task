@@ -3,6 +3,7 @@ package ru.chepenkov;
 import ru.chepenkov.DataTypes.AtomicMaxTracker;
 import ru.chepenkov.DataTypes.AtomicMinTracker;
 import ru.chepenkov.DataTypes.TypeData;
+import ru.chepenkov.Utils.ArrayUtils;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -27,6 +28,7 @@ public class Main {
     static AtomicMaxTracker<BigDecimal> floatMax = new AtomicMaxTracker<>(null);
     static AtomicMinTracker<Integer> stringMin = new AtomicMinTracker<>(null);
     static AtomicMaxTracker<Integer> stringMax = new AtomicMaxTracker<>(null);
+    static String[] flags = {"-o", "-p", "-a", "-s", "-f"};
 
     public static void main(String[] args) throws IOException {
         Map<String, String> options = parseArgs(args);
@@ -65,6 +67,9 @@ public class Main {
                 takenIndexes.add(i + 1);
                 i++;
             } else if (args[i].startsWith("-")) {
+                if (ArrayUtils.findIndex(flags, args[i]) == -1) {
+                    System.out.println("Флаг " + args[i] + " не существует");
+                }
                 takenIndexes.add(i);
             }
         }
@@ -84,11 +89,15 @@ public class Main {
             for (String file : inputFiles) {
                 futures.add(executor.submit(new FileParser(file)));
             }
-            for (Future<Map<String, TypeData<?>>> future : futures) {
+            for (int i = 0; i < futures.size(); i++) {
+                String file = inputFiles.get(i);
                 try {
-                    results.add(future.get());
-                } catch (ExecutionException | InterruptedException e) {
-                    throw new RuntimeException("Ошибка обработки файла", e);
+                    results.add(futures.get(i).get());
+                } catch (ExecutionException e) {
+                    System.err.println("Ошибка при обработке файла " + file + ": " + e.getCause().getMessage());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    System.err.println("Поток был прерван при ожидании файла " + file + " " + e);
                 }
             }
         }
